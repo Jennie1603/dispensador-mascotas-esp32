@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dashboard en Vivo - Dispensador ESP32</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111827; color: #f9fafb; margin: 0; padding: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .card { background: #1f2937; border-radius: 12px; padding: 18px; border: 1px solid #374151; }
+    .label { font-size: 13px; color: #9ca3af; }
+    .value { font-size: 28px; font-weight: bold; margin-top: 6px; }
+    .ok { color: #34d399; }
+    .warn { color: #f87171; }
+    .neutral { color: #f9fafb; }
+    .log { background: #1f2937; border-radius: 12px; padding: 18px; border: 1px solid #374151; }
+    .log-box { max-height: 240px; overflow-y: auto; font-family: monospace; font-size: 13px; background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Panel de Telemetría en Vivo — Dispensador ESP32</h1>
+  <p id="connState">Conectando al flujo en vivo...</p>
+
+  <div class="grid">
+    <div class="card">
+      <div class="label">Estado Wi-Fi</div>
+      <div class="value ok" id="wifiStatus">CONECTADO</div>
+    </div>
+    <div class="card">
+      <div class="label">Distancia Tolva (HC-SR04)</div>
+      <div class="value" id="distValue">-- cm</div>
+    </div>
+    <div class="card">
+      <div class="label">Estado de Tolva</div>
+      <div class="value" id="tolvaStatus">ESPERANDO</div>
+    </div>
+    <div class="card">
+      <div class="label">Compuerta (Servo GPIO 23)</div>
+      <div class="value neutral" id="servoStatus">--</div>
+    </div>
+  </div>
+
+  <div class="log">
+    <strong>Registro de Eventos en Vivo (desde Wokwi):</strong>
+    <div class="log-box" id="logBox"></div>
+  </div>
+
+  <script>
+    const topic = "dispensador/mascotas/telemetria/mi-dispensador-123";
+    const client = mqtt.connect("wss://broker.emqx.io:8084/mqtt");
+
+    function agregarLog(msg) {
+      const box = document.getElementById("logBox");
+      const hora = new Date().toLocaleTimeString();
+      box.innerHTML = `<div>[${hora}] ${msg}</div>` + box.innerHTML;
+    }
+
+    client.on("connect", () => {
+      document.getElementById("connState").textContent = "En línea — Recibiendo datos reales desde ESP32 (Wokwi)";
+      client.subscribe(topic);
+      agregarLog("Dashboard conectado y escuchando al ESP32...");
+    });
+
+    client.on("message", (t, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        document.getElementById("distValue").textContent = data.distancia + " cm";
+
+        const servoEl = document.getElementById("servoStatus");
+        servoEl.textContent = data.compuerta;
+        if (data.compuerta.includes("ABIERTA")) {
+          servoEl.className = "value ok";
+        } else if (data.compuerta.includes("BLOQUEADA")) {
+          servoEl.className = "value warn";
+        } else {
+          servoEl.className = "value neutral";
+        }
+
+        const tolvaEl = document.getElementById("tolvaStatus");
+        if (data.distancia >= 2 && data.distancia < 60) {
+          tolvaEl.textContent = "CON COMIDA";
+          tolvaEl.className = "value ok";
+        } else {
+          tolvaEl.textContent = "SIN COMIDA";
+          tolvaEl.className = "value warn";
+        }
+
+        const detalleEvento = data.evento ? ` | ${data.evento}` : "";
+        agregarLog(`PIR=${data.pir} | Distancia=${data.distancia}cm | Compuerta=${data.compuerta}${detalleEvento}`);
+      } catch (e) {
+        agregarLog("Dato recibido: " + message.toString());
+      }
+    });
+  </script>
+</body>
+</html>
